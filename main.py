@@ -23,10 +23,10 @@ tr = load_dataset("social_bias_frames", split="train")
 #test
 te = load_dataset("social_bias_frames", split="test")
 
-labels_tr = tr["annotatorRace"]
-data_tr = tr.remove_columns("annotatorRace")
-labels_te = te["annotatorRace"]
-data_te = te.remove_columns("annotatorRace")
+labels_tr = tr["offensiveYN"]
+data_tr = tr.remove_columns("offensiveYN")
+labels_te = te["offensiveYN"]
+data_te = te.remove_columns("offensiveYN")
 
 data_tr = data_tr.to_pandas().head(5000)
 data_te = data_te.to_pandas().head(5000)
