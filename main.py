@@ -33,7 +33,21 @@ data_te = data_te.to_pandas().head(5000)
 labels_tr = labels_tr[:5000]
 labels_te = labels_te[:5000]
 
+
+def HasLinks(dat):
+    dat['hasLink'] = dat['post'].str.contains('http')
+
+
+def HasEmojis(dat):
+    dat['hasEmoji'] = dat['post'].str.contains('&#')
+
+
 # Preprocessing
+HasLinks(data_tr)
+HasEmojis(data_tr)
+HasLinks(data_te)
+HasEmojis(data_te)
+
 from sklearn.preprocessing import LabelEncoder
 
 # Convert string categorical variables into integer-encoded variables
