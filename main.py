@@ -1,7 +1,9 @@
 import numpy as np
 import pandas as pd
+from sklearn.decomposition import PCA, TruncatedSVD
 import re
 from scipy.sparse import csr_matrix, hstack
+from sklearn.model_selection import GridSearchCV
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.tree import DecisionTreeClassifier
@@ -20,8 +22,9 @@ print(configs)
 
 # train
 train_data = load_dataset("social_bias_frames", split="train")
-#test
+# test
 test_data = load_dataset("social_bias_frames", split="test")
+
 
 # Check if links and emojis in text
 def has_links(text):
@@ -29,16 +32,19 @@ def has_links(text):
     url_pattern = r'https?://\S+|www\.\S+'
     return int(bool(re.search(url_pattern, text)))
 
+
 def has_emojis(text):
     # Define a regular expression for emojis
     emoji_pattern = r'[\U00010000-\U0010ffff]'
     return int(bool(re.search(emoji_pattern, text)))
+
 
 # Apply the custom functions to the dataset
 def apply_custom_features(dataset):
     dataset = dataset.map(lambda x: {"HasLinksYN": 'Y' if has_links(x['post']) else 'N'})
     dataset = dataset.map(lambda x: {"HasEmojisYN": 'Y' if has_emojis(x['post']) else 'N'})
     return dataset
+
 
 train_data = apply_custom_features(train_data)
 test_data = apply_custom_features(test_data)
@@ -83,8 +89,25 @@ X_combined_test = hstack([X_test, data_te_sparse], format='csr')
 y_train = labels_tr
 y_test = labels_te
 
+# # Define the parameter grid to search for the best 'max_depth'
+# param_grid = {'max_depth': range(1, 21)}  # Searching from 1 to 20
+# 
+# # Initialize the decision tree classifier
+# dtree = DecisionTreeClassifier(random_state=42)
+#
+# # Initialize GridSearchCV with cross-validation
+# grid_search = GridSearchCV(dtree, param_grid, cv=5, scoring='accuracy')
+#
+# # Fit GridSearchCV on the training data
+# grid_search.fit(X_combined_train, y_train)
+#
+# # Print the best parameter and the corresponding score from the training (cross-validation)
+# print(f"Best Parameter from training: {grid_search.best_params_}")
+# print(f"Best Score from training: {grid_search.best_score_}")
+
+
 # Step 5: Train the Decision Tree Classifier
-clf = DecisionTreeClassifier()
+clf = DecisionTreeClassifier(random_state=1)
 clf.fit(X_combined_train, y_train)
 
 # Step 6: Make Predictions on the test set
@@ -120,12 +143,18 @@ scaler = StandardScaler(with_mean=False)
 X_train_scaled = scaler.fit_transform(X_train)
 X_test_scaled = scaler.transform(X_test)
 
+#MLP Hyperparameters
+MLPlearn = 0.01
+svd = TruncatedSVD(n_components=20)
+trunc = svd.fit_transform(X_train_scaled)
+trunc_test = svd.transform(X_test_scaled)
+
 # Train the Multi-layer Perceptron Classifier
-mlp_clf = MLPClassifier(random_state=1, max_iter=300)
-mlp_clf.fit(X_train_scaled, y_train)
+mlp_clf = MLPClassifier(random_state=1, activation='relu', max_iter=300, learning_rate='adaptive', learning_rate_init=MLPlearn)
+mlp_clf.fit(trunc, y_train)
 
 # Make Predictions on the test set with MLP
-y_pred_mlp = mlp_clf.predict(X_test_scaled)
+y_pred_mlp = mlp_clf.predict(trunc_test)
 
 # Evaluate the MLP Model
 accuracy_mlp = accuracy_score(y_test, y_pred_mlp)
