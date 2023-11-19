@@ -8,7 +8,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.naive_bayes import MultinomialNB
-from sklearn.svm import SVC
+from sklearn.svm import LinearSVC
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.neural_network import MLPClassifier
 from sklearn.linear_model import LogisticRegression
@@ -183,7 +183,7 @@ print(report_lr)
 
 # Step 11: Train the SVM Classifier
 # Initialize the SVM classifier with a linear kernel
-svm_clf = SVC(kernel='linear')
+svm_clf = LinearSVC(dual=False, tol=1e-4, max_iter=2000)
 
 # Ensure data is scaled
 X_train_scaled = scaler.fit_transform(X_combined_train)
