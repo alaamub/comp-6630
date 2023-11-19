@@ -19,7 +19,6 @@ from datasets import concatenate_datasets, load_dataset_builder, get_dataset_con
 ds_builder = load_dataset_builder("social_bias_frames")
 print(ds_builder.info.description)
 configs = get_dataset_config_names("social_bias_frames")
-print(configs)
 
 # train
 train_data = load_dataset("social_bias_frames", split="train")
@@ -183,16 +182,20 @@ print("\nLogistic Regression Classification Report:")
 print(report_lr)
 
 # Step 11: Train the SVM Classifier
-# Initialize the SVM classifier with default parameters
-svm_clf = SVC()
+# Initialize the SVM classifier with a linear kernel
+svm_clf = SVC(kernel='linear')
 
-# Fit the SVM classifier on the combined training data
-svm_clf.fit(X_combined_train, y_train)
+# Ensure data is scaled
+X_train_scaled = scaler.fit_transform(X_combined_train)
+X_test_scaled = scaler.transform(X_combined_test)
 
-# Step 12: Make Predictions on the test set with SVM
-y_pred_svm = svm_clf.predict(X_combined_test)
+# Fit the SVM classifier on the scaled training data
+svm_clf.fit(X_train_scaled, y_train)
 
-# Step 13: Evaluate the SVM Model
+# Make Predictions on the scaled test set with SVM
+y_pred_svm = svm_clf.predict(X_test_scaled)
+
+# Evaluate the SVM Model
 accuracy_svm = accuracy_score(y_test, y_pred_svm)
 report_svm = classification_report(y_test, y_pred_svm, zero_division=0)
 
