@@ -8,6 +8,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.naive_bayes import MultinomialNB
+from sklearn.svm import SVC
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.neural_network import MLPClassifier
 from sklearn.linear_model import LogisticRegression
@@ -180,3 +181,23 @@ print("\nLogistic Regression Results")
 print(f"Accuracy: {accuracy_lr}")
 print("\nLogistic Regression Classification Report:")
 print(report_lr)
+
+# Step 11: Train the SVM Classifier
+# Initialize the SVM classifier with default parameters
+svm_clf = SVC()
+
+# Fit the SVM classifier on the combined training data
+svm_clf.fit(X_combined_train, y_train)
+
+# Step 12: Make Predictions on the test set with SVM
+y_pred_svm = svm_clf.predict(X_combined_test)
+
+# Step 13: Evaluate the SVM Model
+accuracy_svm = accuracy_score(y_test, y_pred_svm)
+report_svm = classification_report(y_test, y_pred_svm, zero_division=0)
+
+# Print SVM results
+print("\nSVM Results:")
+print(f"Accuracy: {accuracy_svm}")
+print("\nSVM Classification Report:")
+print(report_svm)
