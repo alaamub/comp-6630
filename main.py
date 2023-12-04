@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA, TruncatedSVD
 import re
 from scipy.sparse import csr_matrix, hstack
@@ -9,198 +10,138 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.svm import LinearSVC
-from sklearn.metrics import accuracy_score, classification_report
+from sklearn.model_selection import GridSearchCV
+from sklearn.metrics import accuracy_score, classification_report, precision_score, recall_score, f1_score
 from sklearn.neural_network import MLPClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import confusion_matrix
+from sklearn.tree import plot_tree
+from sklearn import metrics
+from sklearn.metrics import roc_curve, auc, precision_recall_curve
 from datasets import concatenate_datasets, load_dataset_builder, get_dataset_config_names, load_dataset
+import argparse
+from halo import Halo
 
-# Load Social Bias Frames dataset
-ds_builder = load_dataset_builder("social_bias_frames")
-print(ds_builder.info.description)
-configs = get_dataset_config_names("social_bias_frames")
+class MlClassifier:
+    def __init__(self):
+        self.tfidf_vectorizer = TfidfVectorizer(min_df=10, token_pattern=r'[a-zA-Z]+')
+        self.scaler = StandardScaler(with_mean=False)
+        self.svd = TruncatedSVD(n_components=20)
 
-# train
-train_data = load_dataset("social_bias_frames", split="train")
-# test
-test_data = load_dataset("social_bias_frames", split="test")
+    def load_data(self, dataset_name="social_bias_frames"):
+        train_data = load_dataset(dataset_name, split="train")
+        test_data = load_dataset(dataset_name, split="test")
+        return train_data, test_data
+
+    def preprocess_data(self, data):
+        data = data.map(lambda x: {"HasLinksYN": 'Y' if self.has_links(x['post']) else 'N'})
+        data = data.map(lambda x: {"HasEmojisYN": 'Y' if self.has_emojis(x['post']) else 'N'})
+        return data
+
+    @staticmethod
+    def has_links(text):
+        url_pattern = r'https?://\S+|www\.\S+'
+        return int(bool(re.search(url_pattern, text)))
+
+    @staticmethod
+    def has_emojis(text):
+        emoji_pattern = r'[\U00010000-\U0010ffff]'
+        return int(bool(re.search(emoji_pattern, text)))
+
+    def extract_features(self, train_data, test_data):
+        # Fit the vectorizer on the training data
+        X_train = self.tfidf_vectorizer.fit_transform(train_data['post'])
+
+        # Transform the test data using the same vectorizer
+        X_test = self.tfidf_vectorizer.transform(test_data['post'])
+
+        # Process additional features for training data
+        train_data['HasLinksYN'] = train_data['HasLinksYN'].map({'N': 0, 'Y': 1})
+        train_data['HasEmojisYN'] = train_data['HasEmojisYN'].map({'N': 0, 'Y': 1})
+        additional_features_train = csr_matrix(train_data[['HasLinksYN', 'HasEmojisYN']].values)
+
+        test_data['HasLinksYN'] = test_data['HasLinksYN'].map({'N': 0, 'Y': 1})
+        test_data['HasEmojisYN'] = test_data['HasEmojisYN'].map({'N': 0, 'Y': 1})
+        additional_features_test = csr_matrix(test_data[['HasLinksYN', 'HasEmojisYN']].values)
+
+        # Combine text features and additional features
+        X_combined_train = hstack([X_train, additional_features_train], format='csr')
+        X_combined_test = hstack([X_test, additional_features_test], format='csr')
+
+        return X_combined_train, X_combined_test
+
+    def train_and_evaluate_decision_tree(self, X_train, y_train, X_test, y_test):
+        dtree = DecisionTreeClassifier(max_depth=100)
+        dtree.fit(X_train, y_train)
+        return self.evaluate_model(dtree, X_test, y_test)
+
+    def train_and_evaluate_naive_bayes(self, X_train, y_train, X_test, y_test):
+        nb = MultinomialNB()
+        nb.fit(X_train, y_train)
+        return self.evaluate_model(nb, X_test, y_test)
+
+    def train_and_evaluate_mlp(self, X_train, y_train, X_test, y_test):
+        mlp = MLPClassifier(random_state=1, activation='relu', max_iter=300, learning_rate='adaptive', learning_rate_init=0.01)
+        mlp.fit(X_train, y_train)
+        return self.evaluate_model(mlp, X_test, y_test)
+
+    def train_and_evaluate_logistic_regression(self, X_train, y_train, X_test, y_test):
+        lr = LogisticRegression(max_iter=1000)
+        lr.fit(X_train, y_train)
+        return self.evaluate_model(lr, X_test, y_test)
+
+    def train_and_evaluate_svm(self, X_train, y_train, X_test, y_test):
+        svm = LinearSVC(dual=False, tol=1e-4, max_iter=3000)
+        svm.fit(X_train, y_train)
+        return self.evaluate_model(svm, X_test, y_test)
+
+    def evaluate_model(self, model, X_test, y_test):
+        y_pred = model.predict(X_test)
+        accuracy = accuracy_score(y_test, y_pred)
+        report = classification_report(y_test, y_pred, zero_division=0)
+        return accuracy, report
+
+    def run(self, classifier):
+        train_data, test_data = self.load_data()
+        train_data = self.preprocess_data(train_data)
+        test_data = self.preprocess_data(test_data)
+
+        labels_tr = train_data["offensiveYN"]
+        data_tr = train_data.remove_columns("offensiveYN")
+        labels_te = test_data["offensiveYN"]
+        data_te = test_data.remove_columns("offensiveYN")
+
+        X_train, X_test = self.extract_features(data_tr.to_pandas(), data_te.to_pandas())
 
 
-# Check if links and emojis in text
-def has_links(text):
-    # Define a regular expression for URLs
-    url_pattern = r'https?://\S+|www\.\S+'
-    return int(bool(re.search(url_pattern, text)))
+        # Train and evaluate Decision Tree
+        with Halo(text=f'Training and evaluating {classifier}...', spinner='dots'):
+            if classifier == 'decision_tree':
+                accuracy, report = self.train_and_evaluate_decision_tree(X_train, labels_tr, X_test, labels_te)
+            elif classifier == 'naive_bayes':
+                accuracy, report = self.train_and_evaluate_naive_bayes(X_train, labels_tr, X_test, labels_te)
+            elif classifier == 'mlp':
+                accuracy, report = self.train_and_evaluate_mlp(X_train, labels_tr, X_test, labels_te)
+            elif classifier == 'logistic_regression':
+                accuracy, report = self.train_and_evaluate_logistic_regression(X_train, labels_tr, X_test, labels_te)
+            elif classifier == 'svm':
+                accuracy, report = self.train_and_evaluate_svm(X_train, labels_tr, X_test, labels_te)
+            else:
+                raise ValueError("Unknown classifier")
 
+        print(f"{classifier.capitalize()} Results:")
+        print(f"Accuracy: {accuracy}")
+        print("Classification Report:")
+        print(report)
 
-def has_emojis(text):
-    # Define a regular expression for emojis
-    emoji_pattern = r'[\U00010000-\U0010ffff]'
-    return int(bool(re.search(emoji_pattern, text)))
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Run different ML classifiers')
+    parser.add_argument('-c', '--classifier', required=True, choices=['decision_tree', 'naive_bayes', 'mlp', 'logistic_regression', 'svm'],
+                        help='The machine learning algorithm to run')
 
+    args = parser.parse_args()
 
-# Apply the custom functions to the dataset
-def apply_custom_features(dataset):
-    dataset = dataset.map(lambda x: {"HasLinksYN": 'Y' if has_links(x['post']) else 'N'})
-    dataset = dataset.map(lambda x: {"HasEmojisYN": 'Y' if has_emojis(x['post']) else 'N'})
-    return dataset
+    classifier = MlClassifier()
+    classifier.run(args.classifier)
 
-
-train_data = apply_custom_features(train_data)
-test_data = apply_custom_features(test_data)
-
-# Separate the features and labels for training and testing data
-labels_tr = train_data["offensiveYN"]
-data_tr = train_data.remove_columns("offensiveYN")
-labels_te = test_data["offensiveYN"]
-data_te = test_data.remove_columns("offensiveYN")
-
-# Convert the dataset to a pandas DataFrame
-data_tr = data_tr.to_pandas()
-data_te = data_te.to_pandas()
-
-# Step 2: Preprocess the text data using TF-IDF
-tfidf_vectorizer = TfidfVectorizer(min_df=10, token_pattern=r'[a-zA-Z]+')
-X_train = tfidf_vectorizer.fit_transform(data_tr['post'])
-X_test = tfidf_vectorizer.transform(data_te['post'])
-
-print(X_train.shape)  # Check the shape of X_train
-
-# Combine text features and additional features
-data_tr['HasLinksYN'] = data_tr['HasLinksYN'].map({'N': 0, 'Y': 1})
-data_tr['HasEmojisYN'] = data_tr['HasEmojisYN'].map({'N': 0, 'Y': 1})
-
-data_te['HasLinksYN'] = data_te['HasLinksYN'].map({'N': 0, 'Y': 1})
-data_te['HasEmojisYN'] = data_te['HasEmojisYN'].map({'N': 0, 'Y': 1})
-
-# Select only the numeric columns for converting to sparse matrix
-numeric_columns_tr = ['HasLinksYN', 'HasEmojisYN'] 
-numeric_columns_te = ['HasLinksYN', 'HasEmojisYN']
-
-# Convert additional features to sparse matrix
-data_tr_sparse = csr_matrix(data_tr[numeric_columns_tr].values)
-data_te_sparse = csr_matrix(data_te[numeric_columns_te].values)
-
-# Combine text features and additional features
-X_combined_train = hstack([X_train, data_tr_sparse], format='csr')
-X_combined_test = hstack([X_test, data_te_sparse], format='csr')
-
-# Step 4: Prepare labels
-y_train = labels_tr
-y_test = labels_te
-
-# # Define the parameter grid to search for the best 'max_depth'
-# param_grid = {'max_depth': range(1, 21)}  # Searching from 1 to 20
-# 
-# # Initialize the decision tree classifier
-# dtree = DecisionTreeClassifier(random_state=42)
-#
-# # Initialize GridSearchCV with cross-validation
-# grid_search = GridSearchCV(dtree, param_grid, cv=5, scoring='accuracy')
-#
-# # Fit GridSearchCV on the training data
-# grid_search.fit(X_combined_train, y_train)
-#
-# # Print the best parameter and the corresponding score from the training (cross-validation)
-# print(f"Best Parameter from training: {grid_search.best_params_}")
-# print(f"Best Score from training: {grid_search.best_score_}")
-
-
-# Step 5: Train the Decision Tree Classifier
-clf = DecisionTreeClassifier(random_state=1)
-clf.fit(X_combined_train, y_train)
-
-# Step 6: Make Predictions on the test set
-y_pred = clf.predict(X_combined_test)
-
-# Step 7: Evaluate the Model
-accuracy_dt = accuracy_score(y_test, y_pred)
-report_dt = classification_report(y_test, y_pred, zero_division=0)
-
-print(f"Decision Tree Results:")
-print(f"Accuracy: {accuracy_dt}")
-print("\nDecision Tree Classification Report:")
-print(report_dt)
-
-# Step 8: Train the Naive Bayes Classifier
-nb_clf = MultinomialNB()
-nb_clf.fit(X_combined_train, y_train)
-
-# Step 9: Make Predictions on the test set with Naive Bayes
-y_pred_nb = nb_clf.predict(X_combined_test)
-
-# Step 10: Evaluate the Naive Bayes Model
-accuracy_nb = accuracy_score(y_test, y_pred_nb)
-report_nb = classification_report(y_test, y_pred_nb, zero_division=0)
-
-print("\nNaive Bayes Results:")
-print(f"Accuracy: {accuracy_nb}")
-print("\nNaive Bayes Classification Report:")
-print(report_nb)
-
-# Standardize the features before feeding them into MLP
-scaler = StandardScaler(with_mean=False)
-X_train_scaled = scaler.fit_transform(X_train)
-X_test_scaled = scaler.transform(X_test)
-
-#MLP Hyperparameters
-MLPlearn = 0.01
-svd = TruncatedSVD(n_components=20)
-trunc = svd.fit_transform(X_train_scaled)
-trunc_test = svd.transform(X_test_scaled)
-
-# Train the Multi-layer Perceptron Classifier
-mlp_clf = MLPClassifier(random_state=1, activation='relu', max_iter=300, learning_rate='adaptive', learning_rate_init=MLPlearn)
-mlp_clf.fit(trunc, y_train)
-
-# Make Predictions on the test set with MLP
-y_pred_mlp = mlp_clf.predict(trunc_test)
-
-# Evaluate the MLP Model
-accuracy_mlp = accuracy_score(y_test, y_pred_mlp)
-report_mlp = classification_report(y_test, y_pred_mlp, zero_division=0)
-
-print("\nMulti-layer Perceptron Results")
-print(f"Accuracy: {accuracy_mlp}")
-print("\nMulti-layer Perceptron Classification Report:")
-print(report_mlp)
-
-# Train the Logistic Regression Classifier
-log_reg = LogisticRegression(max_iter=1000)
-log_reg.fit(X_train, y_train)
-
-# Make Predictions on the test set with Logistic Regression
-y_pred_lr = log_reg.predict(X_test)
-
-# Evaluate the Logistic Regression Model
-accuracy_lr = accuracy_score(y_test, y_pred_lr)
-report_lr = classification_report(y_test, y_pred_lr, zero_division=0)
-
-print("\nLogistic Regression Results")
-print(f"Accuracy: {accuracy_lr}")
-print("\nLogistic Regression Classification Report:")
-print(report_lr)
-
-# Step 11: Train the SVM Classifier
-# Initialize the SVM classifier with a linear kernel
-svm_clf = LinearSVC(dual=False, tol=1e-4, max_iter=2000)
-
-# Ensure data is scaled
-X_train_scaled = scaler.fit_transform(X_combined_train)
-X_test_scaled = scaler.transform(X_combined_test)
-
-# Fit the SVM classifier on the scaled training data
-svm_clf.fit(X_train_scaled, y_train)
-
-# Make Predictions on the scaled test set with SVM
-y_pred_svm = svm_clf.predict(X_test_scaled)
-
-# Evaluate the SVM Model
-accuracy_svm = accuracy_score(y_test, y_pred_svm)
-report_svm = classification_report(y_test, y_pred_svm, zero_division=0)
-
-# Print SVM results
-print("\nSVM Results:")
-print(f"Accuracy: {accuracy_svm}")
-print("\nSVM Classification Report:")
-print(report_svm)
